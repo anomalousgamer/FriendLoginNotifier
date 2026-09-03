@@ -31,3 +31,7 @@ This is an unofficial third-party plugin. It is not affiliated with or endorsed 
 ## Development disclosure
 
 This plugin was created with substantial AI assistance and manually tested in-game as someone learning how the process works.
+
+## License and origin
+
+This project began from the goatcorp SamplePlugin template and was substantially modified by Anomaly in September 2026. It is distributed under the GNU Affero General Public License v3. See `LICENSE.md`.
