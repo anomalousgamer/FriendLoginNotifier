@@ -11,4 +11,11 @@
         <Tags>social;friends;notification</Tags>
         <RepoUrl>https://github.com/anomalousgamer/FriendLoginNotifier</RepoUrl>
     </PropertyGroup>
+
+    <ItemGroup>
+        <Content Include="..\LICENSE.md">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Visible>false</Visible>
+        </Content>
+    </ItemGroup>
 </Project>
