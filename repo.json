@@ -1,24 +1,25 @@
 [
-  {
-    "Author": "Anomaly",
-    "Name": "Friend Login Notifier",
-    "InternalName": "FriendLoginNotifier",
-    "AssemblyVersion": "1.0.0.0",
-    "Description": "Monitors the FFXIV friends list and prints a chat notification when a friend changes from offline to online after the list updates.",
-    "Punchline": "Prints a chat message when a friend logs in.",
-    "Changelog": "Initial public release.",
-    "Tags": [
-      "social",
-      "friends",
-      "notification"
-    ],
-    "RepoUrl": "https://github.com/anomalousgamer/FriendLoginNotifier",
-    "ApplicableVersion": "any",
-    "DalamudApiLevel": 15,
-    "IsHide": false,
-    "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/anomalousgamer/FriendLoginNotifier/releases/download/V1.0.0.0/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/anomalousgamer/FriendLoginNotifier/releases/download/V1.0.0.0/latest.zip",
-    "LastUpdate": 1788396597
-  }
+    {
+        "Author": "Anomaly",
+        "Name": "Friend Login Notifier",
+        "InternalName": "FriendLoginNotifier",
+        "AssemblyVersion": "1.0.0.0",
+        "Description": "Monitors the FFXIV friends list and prints a chat notification when a friend changes from offline to online after the list updates.",
+        "Punchline": "Prints a chat message when a friend logs in.",
+        "Changelog": "Initial public release.",
+        "Tags": [
+            "social",
+            "friends",
+            "notification"
+        ],
+        "RepoUrl": "https://github.com/anomalousgamer/FriendLoginNotifier",
+        "IconUrl": "https://raw.githubusercontent.com/anomalousgamer/FriendLoginNotifier/master/icon.png",
+        "ApplicableVersion": "any",
+        "DalamudApiLevel": 15,
+        "IsHide": false,
+        "IsTestingExclusive": false,
+        "DownloadLinkInstall": "https://github.com/anomalousgamer/FriendLoginNotifier/releases/download/V1.0.0.0/latest.zip",
+        "DownloadLinkUpdate": "https://github.com/anomalousgamer/FriendLoginNotifier/releases/download/V1.0.0.0/latest.zip",
+        "LastUpdate": 1788396597
+    }
 ]
