@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+    <PropertyGroup>
+        <Version>1.0.0.0</Version>
+        <AssemblyName>FriendLoginNotifier</AssemblyName>
+        <RootNamespace>FriendLoginNotifier</RootNamespace>
+        <Author>Anomaly</Author>
+        <Name>Friend Login Notifier</Name>
+        <Punchline>Prints a chat message when a friend logs in.</Punchline>
+        <Description>Monitors the FFXIV friends list and prints a chat notification when a friend changes from offline to online after the list updates.</Description>
+        <Tags>social;friends;notification</Tags>
+        <RepoUrl>https://github.com/anomalousgamer/FriendLoginNotifier</RepoUrl>
+    </PropertyGroup>
+</Project>
