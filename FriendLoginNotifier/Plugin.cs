@@ -11,6 +11,7 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
+using Lumina.Excel.Sheets;
 
 namespace FriendLoginNotifier;
 
@@ -47,6 +48,9 @@ public sealed unsafe class Plugin : IDalamudPlugin
     [PluginService]
     private static IPlayerState PlayerState { get; set; } = null!;
 
+    [PluginService]
+    private static IDataManager DataManager { get; set; } = null!;
+
     private const string CommandName = "/friends";
     private const ushort LoginColor = 570;
     private const int MinimumPollSeconds = 4 * 60;
@@ -65,13 +69,22 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private static readonly TimeSpan CrossWorldBaselineSettleDelay =
         TimeSpan.FromSeconds(5);
 
+    private static readonly TimeSpan CrossWorldResultSettleDelay =
+        TimeSpan.FromSeconds(3);
+
     private static readonly TimeSpan ChangelogLoginDelay =
         TimeSpan.FromSeconds(3);
 
     private readonly Dictionary<string, bool> friendStates =
         new(StringComparer.Ordinal);
 
+    private readonly Dictionary<string, ushort> friendWorldStates =
+        new(StringComparer.Ordinal);
+
     private readonly Queue<ulong> pendingCrossWorldChecks = new();
+    private readonly HashSet<ulong> currentCycleIndividualChecks = new();
+    private readonly HashSet<ulong> settledIndividualChecks = new();
+    private readonly HashSet<ulong> sameHomeWorldCrossWorldCandidates = new();
     private readonly Random random = new();
     private readonly Configuration configuration;
 
@@ -87,6 +100,9 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private bool reportSyncProgressToChat;
     private bool manualSyncInProgress;
     private bool currentCycleRefreshesGeneralFriendList;
+    private bool waitingForFinalCrossWorldResults;
+
+    private ulong lastRequestedContentId;
 
     private AutomaticPollingMode pendingPollingMode =
         AutomaticPollingMode.Disabled;
@@ -156,8 +172,16 @@ public sealed unsafe class Plugin : IDalamudPlugin
             new CommandInfo(OnCommand)
             {
                 HelpMessage =
-                    "Opens settings. Subcommands: help, time, changes, test, " +
-                    "sync, syncworld, syncother, debug on, debug off."
+                        "Opens the settings window.\n" +
+                        "/friends help — Shows the complete command list.\n" +
+                        "/friends time — Shows the time until the next automatic poll.\n" +
+                        "/friends changes — Opens the changelog.\n" +
+                        "/friends test — Sends a test notification.\n" +
+                        "/friends sync — Synchronizes all friends.\n" +
+                        "/friends syncworld — Synchronizes same-world friends.\n" +
+                        "/friends syncother — Checks friends who may be on other worlds.\n" +
+                        "/friends debug on — Enables debug chat messages.\n" +
+                        "/friends debug off — Disables debug chat messages."
             });
 
         PluginInterface.UiBuilder.Draw += DrawUi;
@@ -329,7 +353,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
         ChatGui.Print(
             "/friends sync — Refreshes the general Friend List, then " +
-            "checks friends on other worlds.",
+            "checks friends who are on or may be on other worlds.",
             "Friend Login");
 
         ChatGui.Print(
@@ -338,7 +362,8 @@ public sealed unsafe class Plugin : IDalamudPlugin
             "Friend Login");
 
         ChatGui.Print(
-            "/friends syncother — Checks only friends on other worlds.",
+            "/friends syncother — Checks friends who are on or may be " +
+            "on other worlds.",
             "Friend Login");
 
         ChatGui.Print(
@@ -504,9 +529,10 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
             ImGui.TextWrapped(
                 "All-world mode performs the same general refresh, then " +
-                "checks friends on other worlds individually with a new " +
-                "randomized 3–5 second gap between each request. Its next " +
-                "4–9 minute timer starts after the final friend is checked.");
+                "checks friends on other Home Worlds and same-Home-World " +
+                "friends who may be visiting elsewhere. Individual requests " +
+                "use a new randomized 3–5 second gap. Its next 4–9 minute " +
+                "timer starts after the final friend is checked.");
 
             ImGui.Spacing();
 
@@ -556,7 +582,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
             ImGui.TextDisabled(
                 "Refreshes the general Friend List and individually checks " +
-                "friends on other worlds.");
+                "friends who are on or may be on other worlds.");
 
             ImGui.PushStyleColor(
                 ImGuiCol.Text,
@@ -647,9 +673,9 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
         ImGui.TextWrapped(
             "Same-world polling refreshes the general Friend List. " +
-            "All-world polling also checks eligible cross-world friends " +
-            "individually, with a newly randomized delay of three, four, " +
-            "or five seconds between each request.");
+            "All-world polling also checks eligible friends who are on or " +
+            "may be visiting other worlds, with a newly randomized delay " +
+            "of three, four, or five seconds between each request.");
 
         ImGui.Spacing();
 
@@ -919,13 +945,13 @@ public sealed unsafe class Plugin : IDalamudPlugin
         {
             ChatGui.Print(
                 "Syncing all friends. Refreshing the general Friend List " +
-                "before checking friends on other worlds.",
+                "before checking friends who may be on other worlds.",
                 "Friend Login");
         }
         else
         {
             ChatGui.Print(
-                "Syncing friends on other worlds.",
+                "Syncing friends who are on or may be on other worlds.",
                 "Friend Login");
         }
 
@@ -1098,11 +1124,15 @@ public sealed unsafe class Plugin : IDalamudPlugin
         }
 
         pendingCrossWorldChecks.Clear();
+        currentCycleIndividualChecks.Clear();
+        settledIndividualChecks.Clear();
         crossWorldChecksTotal = 0;
         crossWorldChecksSent = 0;
         crossWorldChecksProcessed = 0;
         crossWorldQueueBuiltFromFriendList = false;
         crossWorldCycleActive = true;
+        waitingForFinalCrossWorldResults = false;
+        lastRequestedContentId = 0;
         nextPollAtUtc = DateTime.MaxValue;
 
         if (refreshGeneralFriendList)
@@ -1120,7 +1150,13 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
         if (pendingCrossWorldChecks.Count == 0)
         {
-            FinishCrossWorldCheckCycle();
+            waitingForFinalCrossWorldResults = true;
+            nextCrossWorldRequestAtUtc =
+                now + CrossWorldResultSettleDelay;
+
+            PrintDebugChat(
+                "Waiting for the final friend status result to settle.");
+
             return;
         }
 
@@ -1135,6 +1171,16 @@ public sealed unsafe class Plugin : IDalamudPlugin
             return;
         }
 
+        if (waitingForFinalCrossWorldResults)
+        {
+            MarkLastIndividualCheckSettled();
+            TryScanFriendList();
+
+            waitingForFinalCrossWorldResults = false;
+            FinishCrossWorldCheckCycle();
+            return;
+        }
+
         if (waitingToBuildCrossWorldQueue)
         {
             waitingToBuildCrossWorldQueue = false;
@@ -1146,6 +1192,8 @@ public sealed unsafe class Plugin : IDalamudPlugin
                 return;
             }
         }
+
+        MarkLastIndividualCheckSettled();
 
         var agent = AgentFriendlist.Instance();
 
@@ -1165,12 +1213,21 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
         if (pendingCrossWorldChecks.Count == 0)
         {
-            FinishCrossWorldCheckCycle();
+            waitingForFinalCrossWorldResults = true;
+            nextCrossWorldRequestAtUtc =
+                now + CrossWorldResultSettleDelay;
+
+            PrintDebugChat(
+                "Waiting for the final friend status result to settle.");
+
             return;
         }
 
         var contentId =
             pendingCrossWorldChecks.Dequeue();
+
+        lastRequestedContentId =
+            contentId;
 
         try
         {
@@ -1204,7 +1261,13 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
         if (pendingCrossWorldChecks.Count == 0)
         {
-            FinishCrossWorldCheckCycle();
+            waitingForFinalCrossWorldResults = true;
+            nextCrossWorldRequestAtUtc =
+                now + CrossWorldResultSettleDelay;
+
+            PrintDebugChat(
+                "Waiting for the final friend status result to settle.");
+
             return;
         }
 
@@ -1226,6 +1289,19 @@ public sealed unsafe class Plugin : IDalamudPlugin
             $"{delaySeconds} seconds.");
     }
 
+    private void MarkLastIndividualCheckSettled()
+    {
+        if (lastRequestedContentId == 0)
+        {
+            return;
+        }
+
+        settledIndividualChecks.Add(
+            lastRequestedContentId);
+
+        lastRequestedContentId = 0;
+    }
+
     private void BuildCrossWorldCheckQueue()
     {
         var friendList =
@@ -1245,8 +1321,48 @@ public sealed unsafe class Plugin : IDalamudPlugin
         foreach (ref readonly var friend
                  in friendList->CharDataSpan)
         {
-            if (friend.ContentId == 0 ||
-                !friend.IsOtherServer ||
+            if (friend.ContentId == 0)
+            {
+                continue;
+            }
+
+            var isOnline =
+                (friend.State &
+                 InfoProxyCommonList.CharacterData
+                     .OnlineStatus.Online) != 0;
+
+            var isSameHomeWorld =
+                PlayerState.IsLoaded &&
+                friend.HomeWorld ==
+                PlayerState.HomeWorld.RowId;
+
+            if (isSameHomeWorld)
+            {
+                var isKnownToBeAwayFromHome =
+                    isOnline &&
+                    friend.CurrentWorld != 0 &&
+                    friend.CurrentWorld != friend.HomeWorld;
+
+                if (!isOnline ||
+                    isKnownToBeAwayFromHome)
+                {
+                    sameHomeWorldCrossWorldCandidates.Add(
+                        friend.ContentId);
+                }
+                else if (friend.CurrentWorld ==
+                         friend.HomeWorld)
+                {
+                    sameHomeWorldCrossWorldCandidates.Remove(
+                        friend.ContentId);
+                }
+            }
+
+            var shouldCheckIndividually =
+                friend.IsOtherServer ||
+                sameHomeWorldCrossWorldCandidates.Contains(
+                    friend.ContentId);
+
+            if (!shouldCheckIndividually ||
                 !addedContentIds.Add(friend.ContentId))
             {
                 continue;
@@ -1254,18 +1370,21 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
             pendingCrossWorldChecks.Enqueue(
                 friend.ContentId);
+
+            currentCycleIndividualChecks.Add(
+                friend.ContentId);
         }
 
         crossWorldChecksTotal =
             pendingCrossWorldChecks.Count;
 
         PluginLog.Debug(
-            "Queued {Count} cross-world friends for individual status checks.",
+            "Queued {Count} friends for individual world-status checks.",
             crossWorldChecksTotal);
 
         PrintDebugChat(
-            $"Queued {crossWorldChecksTotal} cross-world friends " +
-            "for individual status checks.");
+            $"Queued {crossWorldChecksTotal} friends " +
+            "for individual world-status checks.");
     }
 
     private void FinishCrossWorldCheckCycle()
@@ -1381,8 +1500,12 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private void CancelCrossWorldCheckCycle()
     {
         pendingCrossWorldChecks.Clear();
+        currentCycleIndividualChecks.Clear();
+        settledIndividualChecks.Clear();
         crossWorldCycleActive = false;
         waitingToBuildCrossWorldQueue = false;
+        waitingForFinalCrossWorldResults = false;
+        lastRequestedContentId = 0;
         crossWorldQueueBuiltFromFriendList = false;
         reportSyncProgressToChat = false;
         manualSyncInProgress = false;
@@ -1568,20 +1691,130 @@ public sealed unsafe class Plugin : IDalamudPlugin
                  InfoProxyCommonList.CharacterData
                      .OnlineStatus.Online) != 0;
 
-            if (baselineReady &&
-                (!friend.IsOtherServer ||
-                 crossWorldBaselineReady) &&
+            var hadPreviousState =
                 friendStates.TryGetValue(
                     key,
-                    out var wasOnline) &&
-                !wasOnline &&
-                isOnline)
+                    out var wasOnline);
+
+            var hadPreviousWorld =
+                friendWorldStates.TryGetValue(
+                    key,
+                    out var previousWorldId);
+
+            var isSameHomeWorld =
+                PlayerState.IsLoaded &&
+                friend.HomeWorld ==
+                PlayerState.HomeWorld.RowId;
+
+            if (friend.ContentId != 0 &&
+                isSameHomeWorld)
             {
-                PrintGreenMessage(
-                    $"{name} has logged in.");
+                var isKnownToBeAwayFromHome =
+                    isOnline &&
+                    friend.CurrentWorld != 0 &&
+                    friend.CurrentWorld != friend.HomeWorld;
+
+                if (isKnownToBeAwayFromHome ||
+                    (hadPreviousState &&
+                     wasOnline &&
+                     !isOnline))
+                {
+                    sameHomeWorldCrossWorldCandidates.Add(
+                        friend.ContentId);
+                }
+                else if (isOnline &&
+                         friend.CurrentWorld ==
+                         friend.HomeWorld)
+                {
+                    sameHomeWorldCrossWorldCandidates.Remove(
+                        friend.ContentId);
+                }
+            }
+
+            var shouldDeferSameHomeState =
+                friend.ContentId != 0 &&
+                isSameHomeWorld &&
+                ((waitingToBuildCrossWorldQueue &&
+                  !isOnline) ||
+                 (currentCycleIndividualChecks.Contains(
+                      friend.ContentId) &&
+                  !settledIndividualChecks.Contains(
+                      friend.ContentId)));
+
+            if (shouldDeferSameHomeState)
+            {
+                continue;
+            }
+
+            var requiresCrossWorldBaseline =
+                friend.IsOtherServer ||
+                sameHomeWorldCrossWorldCandidates.Contains(
+                    friend.ContentId) ||
+                currentCycleIndividualChecks.Contains(
+                    friend.ContentId);
+
+            var currentWorldId =
+                friend.CurrentWorld;
+
+            var isMarkedAnotherWorld =
+                (friend.State &
+                 InfoProxyCommonList.CharacterData
+                     .OnlineStatus.AnotherWorld) != 0;
+
+            if (currentWorldId == 0 &&
+                isOnline &&
+                !friend.IsOtherServer &&
+                !isMarkedAnotherWorld &&
+                PlayerState.IsLoaded)
+            {
+                currentWorldId =
+                    (ushort)PlayerState.CurrentWorld.RowId;
+            }
+
+            var loggedInTransition =
+                hadPreviousState &&
+                !wasOnline &&
+                isOnline;
+
+            var movedFromPlayersWorld =
+                hadPreviousState &&
+                wasOnline &&
+                isOnline &&
+                hadPreviousWorld &&
+                previousWorldId != 0 &&
+                currentWorldId != 0 &&
+                PlayerState.IsLoaded &&
+                previousWorldId ==
+                PlayerState.CurrentWorld.RowId &&
+                currentWorldId != previousWorldId;
+
+            if (baselineReady &&
+                (!requiresCrossWorldBaseline ||
+                 crossWorldBaselineReady) &&
+                (loggedInTransition ||
+                 movedFromPlayersWorld))
+            {
+                var currentWorldName =
+                    TryGetWorldName(currentWorldId);
+
+                if (loggedInTransition ||
+                    !string.IsNullOrWhiteSpace(
+                        currentWorldName))
+                {
+                    PrintGreenMessage(
+                        string.IsNullOrWhiteSpace(
+                            currentWorldName)
+                            ? $"{name} has logged in."
+                            : $"{name} has logged in on " +
+                              $"{currentWorldName}.");
+                }
             }
 
             friendStates[key] = isOnline;
+            friendWorldStates[key] =
+                isOnline
+                    ? currentWorldId
+                    : (ushort)0;
         }
 
         if (foundValidEntry)
@@ -1590,6 +1823,40 @@ public sealed unsafe class Plugin : IDalamudPlugin
         }
 
         return foundValidEntry;
+    }
+
+    private static string? TryGetWorldName(
+        ushort worldId)
+    {
+        if (worldId == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var worldSheet =
+                DataManager.GetExcelSheet<World>();
+
+            var world =
+                worldSheet.GetRow(worldId);
+
+            var worldName =
+                world.Name.ToString();
+
+            return string.IsNullOrWhiteSpace(worldName)
+                ? null
+                : worldName;
+        }
+        catch (Exception exception)
+        {
+            PluginLog.Warning(
+                exception,
+                "Could not resolve world name for world ID {WorldId}.",
+                worldId);
+
+            return null;
+        }
     }
 
     private static void PrintGreenMessage(
@@ -1630,6 +1897,13 @@ public sealed unsafe class Plugin : IDalamudPlugin
                     prefix +
                     "Refreshing the Friend List before checking " +
                     "cross-world friends.";
+            }
+
+            if (waitingForFinalCrossWorldResults)
+            {
+                return
+                    prefix +
+                    "Waiting for the final world-status result.";
             }
 
             return
@@ -1734,6 +2008,11 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private void ResetTracking()
     {
         friendStates.Clear();
+        friendWorldStates.Clear();
+        sameHomeWorldCrossWorldCandidates.Clear();
+        currentCycleIndividualChecks.Clear();
+        settledIndividualChecks.Clear();
+        lastRequestedContentId = 0;
         baselineReady = false;
         crossWorldBaselineReady = false;
         crossWorldQueueBuiltFromFriendList = false;

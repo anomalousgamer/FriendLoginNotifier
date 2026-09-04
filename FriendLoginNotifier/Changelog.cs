@@ -3,6 +3,11 @@ namespace FriendLoginNotifier;
 internal static class Changelog
 {
     public const string Latest =
+        "---------- Hotfix — Version 1.1.1.0 ----------\n\n" +
+        "• Fixed all-world tracking so same-Home-World friends who move to or log in on another world can also be checked.\n\n" +
+        "• A friend moving from your current world to another world is now reported as a new login, including when the change is detected during the same polling cycle.\n\n" +
+        "• Login notifications now include the friend's current world whenever FFXIV provides a valid current-world value.\n\n" +
+        "---------- Major Update — Version 1.1.0.0 ----------\n\n" +
         "• Added separate automatic polling modes for same-world friends and all worlds. Automatic polling remains disabled by default.\n\n" +
         "• Same-world polling refreshes the general Friend List after a newly randomized delay between 4 and 9 minutes.\n\n" +
         "• All-world polling also checks cross-world friends individually, using a newly randomized delay of 3, 4, or 5 seconds between requests. The next 4–9 minute timer begins after the final check finishes.\n\n" +

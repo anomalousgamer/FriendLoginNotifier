@@ -3,10 +3,10 @@
         "Author": "Anomaly",
         "Name": "Friend Login Notifier",
         "InternalName": "FriendLoginNotifier",
-        "AssemblyVersion": "1.1.0.0",
+        "AssemblyVersion": "1.1.1.0",
         "Description": "Monitors the FFXIV friends list and prints a chat notification when a friend changes from offline to online after the list updates.",
         "Punchline": "Prints a chat message when a friend logs in.",
-        "Changelog": "Initial public release.",
+        "Changelog": "V1.1.1.0 Hotfix",
         "Tags": [
             "social",
             "friends",
@@ -18,8 +18,8 @@
         "DalamudApiLevel": 15,
         "IsHide": false,
         "IsTestingExclusive": false,
-        "DownloadLinkInstall": "https://github.com/anomalousgamer/FriendLoginNotifier/releases/download/V1.1.0.0/latest.zip",
-        "DownloadLinkUpdate": "https://github.com/anomalousgamer/FriendLoginNotifier/releases/download/V1.1.0.0/latest.zip",
-        "LastUpdate": 1788476065
+        "DownloadLinkInstall": "https://github.com/anomalousgamer/FriendLoginNotifier/releases/download/V1.1.1.0/latest.zip",
+        "DownloadLinkUpdate": "https://github.com/anomalousgamer/FriendLoginNotifier/releases/download/V1.1.1.0/latest.zip",
+        "LastUpdate": 1780000000
     }
 ]
